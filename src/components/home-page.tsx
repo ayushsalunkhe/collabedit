@@ -27,10 +27,11 @@ export default function HomePage({ onEnterRoom }: HomePageProps) {
 // Share the Room ID to invite collaborators.
 // You can change the language in the editor.
 
-function hello() {
-  console.log('Welcome to CodeSync!');
+function greet(name) {
+  console.log(\`Hello, \${name}!\`);
 }
-`;
+
+greet('World');`;
       await setDoc(doc(db, 'rooms', newRoomId), {
         code: initialCode,
         language: 'javascript',

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Home, Copy, Wand2, Loader2, Play, Code } from 'lucide-react';
 import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
+import { executeCode } from '@/ai/flows/code-execution';
 import {
   Select,
   SelectContent,
@@ -24,6 +25,36 @@ import { Terminal } from 'lucide-react';
 
 
 type Language = 'javascript' | 'python' | 'cpp';
+
+const languageExamples: Record<Language, string> = {
+  javascript: `// Welcome to your CodeSync session!
+function greet(name) {
+  console.log(\`Hello, \${name}!\`);
+}
+
+greet('World');
+`,
+  python: `# Welcome to your CodeSync session!
+def greet(name):
+  print(f"Hello, {name}!")
+
+greet("World")
+`,
+  cpp: `// Welcome to your CodeSync session!
+#include <iostream>
+#include <string>
+
+void greet(std::string name) {
+  std::cout << "Hello, " << name << "!" << std::endl;
+}
+
+int main() {
+  greet("World");
+  return 0;
+}
+`,
+};
+
 
 interface EditorPageProps {
   roomId: string;
@@ -86,8 +117,14 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         const remoteLang = data.language || 'javascript';
         
         isRemoteChange.current = true;
-        setCode(remoteCode);
-        setLanguage(remoteLang);
+        
+        // Only update if the remote code is different from the current code
+        if(remoteCode !== code) {
+          setCode(remoteCode);
+        }
+        if(remoteLang !== language){
+          setLanguage(remoteLang);
+        }
 
       } else {
         toast({ title: 'Error', description: 'Session not found. Returning to home.', variant: 'destructive' });
@@ -105,7 +142,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [roomId, onLeave, toast]);
+  }, [roomId, onLeave, toast, code, language]);
 
   const onEditorChange = useCallback((value: string) => {
     if (isRemoteChange.current) {
@@ -117,8 +154,10 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   }, [debouncedUpdate]);
 
   const handleLanguageChange = (newLang: Language) => {
-      setLanguage(newLang);
-      updateFirestore(code, newLang);
+    const newCode = languageExamples[newLang];
+    setLanguage(newLang);
+    setCode(newCode);
+    updateFirestore(newCode, newLang);
   }
   
   const copyRoomId = () => {
@@ -152,10 +191,17 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const handleRunCode = async () => {
     setIsRunning(true);
     setRunOutput(null);
-    await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network latency & execution time
-    setRunOutput(`Code executed successfully with language: ${language}.\n(This is a simulation, no code was actually executed)`);
-    setIsRunning(false);
-    toast({ title: 'Code "Executed"', description: 'Simulation complete.' });
+    try {
+      const result = await executeCode({ code, language });
+      setRunOutput(result.output);
+      toast({ title: 'Code Executed', description: 'AI predicted the output.' });
+    } catch (error) {
+        console.error("Error executing code:", error);
+        toast({ title: 'Execution Error', description: 'Could not predict the output.', variant: 'destructive' });
+        setRunOutput('An error occurred while trying to execute the code.');
+    } finally {
+        setIsRunning(false);
+    }
   }
 
   return (
