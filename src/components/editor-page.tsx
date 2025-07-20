@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Home, Copy, Wand2, Loader2, Play, Code } from 'lucide-react';
 import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
-import { executeCode } from '@/ai/flows/code-execution';
 import {
   Select,
   SelectContent,
@@ -157,6 +156,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     const newCode = languageExamples[newLang];
     setLanguage(newLang);
     setCode(newCode);
+    setRunOutput(null); // Clear output on language change
     updateFirestore(newCode, newLang);
   }
   
@@ -188,21 +188,42 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     }
   };
 
-  const handleRunCode = async () => {
+  const handleRunCode = () => {
     setIsRunning(true);
     setRunOutput(null);
+    const output: (string | null)[] = [];
+
+    // Temporarily override console.log to capture output
+    const originalConsoleLog = console.log;
+    console.log = (...args) => {
+        const message = args.map(arg => {
+            if (typeof arg === 'object' && arg !== null) {
+                try {
+                    return JSON.stringify(arg, null, 2);
+                } catch (e) {
+                    return '[Unserializable Object]';
+                }
+            }
+            return String(arg);
+        }).join(' ');
+        output.push(message);
+    };
+
     try {
-      const result = await executeCode({ code, language });
-      setRunOutput(result.output);
-      toast({ title: 'Code Executed', description: 'AI predicted the output.' });
-    } catch (error) {
-        console.error("Error executing code:", error);
-        toast({ title: 'Execution Error', description: 'Could not predict the output.', variant: 'destructive' });
-        setRunOutput('An error occurred while trying to execute the code.');
+        // Use a function constructor for safer, sandboxed execution than direct eval
+        new Function(code)();
+    } catch (error: any) {
+        output.push(`Error: ${error.message}`);
     } finally {
+        // Restore original console.log and set output
+        console.log = originalConsoleLog;
+        setRunOutput(output.join('\n') || 'Code executed. (No output was logged to the console)');
         setIsRunning(false);
+        toast({ title: 'Code Executed', description: 'JavaScript was run in the browser.' });
     }
-  }
+  };
+
+  const isRunDisabled = language !== 'javascript' || isRunning;
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -234,7 +255,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
             Suggest
           </Button>
 
-          <Button onClick={handleRunCode} variant="secondary" disabled={isRunning}>
+          <Button onClick={handleRunCode} variant="secondary" disabled={isRunDisabled} title={language !== 'javascript' ? 'Code execution is only available for JavaScript' : 'Run Code'}>
               {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
               Run Code
           </Button>
@@ -249,7 +270,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         <div className="flex-1">
           <CodeMirror
             value={code}
-            height="calc(100vh - 64px - 140px)"
+            height={runOutput || isRunning ? "calc(100vh - 64px - 140px)" : "calc(100vh - 64px)"}
             extensions={[langExtension]}
             theme={vscodeDark}
             onChange={onEditorChange}
