@@ -71,7 +71,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const { toast } = useToast();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   
-  const isRemoteChange = useRef(true);
+  const isRemoteChange = useRef(false);
 
   useEffect(() => {
     switch (language) {
@@ -117,13 +117,19 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         
         isRemoteChange.current = true;
         
-        // Only update if the remote code is different from the current code
-        if(remoteCode !== code) {
-          setCode(remoteCode);
-        }
-        if(remoteLang !== language){
-          setLanguage(remoteLang);
-        }
+        setCode(currentCode => {
+          if(remoteCode !== currentCode) {
+            return remoteCode;
+          }
+          return currentCode;
+        });
+
+        setLanguage(currentLang => {
+          if (remoteLang !== currentLang) {
+            return remoteLang;
+          }
+          return currentLang;
+        });
 
       } else {
         toast({ title: 'Error', description: 'Session not found. Returning to home.', variant: 'destructive' });
@@ -141,7 +147,8 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [roomId, onLeave, toast, code, language]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, onLeave, toast]);
 
   const onEditorChange = useCallback((value: string) => {
     if (isRemoteChange.current) {
