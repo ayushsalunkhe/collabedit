@@ -6,7 +6,7 @@ import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Code } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface HomePageProps {
@@ -19,23 +19,21 @@ export default function HomePage({ onEnterRoom }: HomePageProps) {
   const [isJoining, setIsJoining] = useState(false);
   const { toast } = useToast();
 
-  // Function to create a new session
   const createNewSession = async () => {
     setIsCreating(true);
-    // Generate a reasonably unique room ID
     const newRoomId = Math.random().toString(36).substring(2, 9);
     try {
-      // The initial code that appears in a new session
       const initialCode = `// Welcome to your new CodeSync session!
 // Share the Room ID to invite collaborators.
+// You can change the language in the editor.
 
 function hello() {
   console.log('Welcome to CodeSync!');
 }
 `;
-      // Create a new document in the 'rooms' collection
       await setDoc(doc(db, 'rooms', newRoomId), {
         code: initialCode,
+        language: 'javascript',
       });
       onEnterRoom(newRoomId);
     } catch (error) {
@@ -49,7 +47,6 @@ function hello() {
     }
   };
 
-  // Function to join an existing session
   const joinSession = async () => {
     if (roomId.trim() === '') {
       toast({
@@ -60,7 +57,6 @@ function hello() {
       return;
     }
     setIsJoining(true);
-    // Check if the room exists before joining
     const roomRef = doc(db, 'rooms', roomId.trim());
     const roomSnap = await getDoc(roomRef);
 
@@ -77,12 +73,14 @@ function hello() {
   };
   
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md shadow-2xl animate-fade-in-up">
+    <div className="flex min-h-screen items-center justify-center bg-transparent p-4">
+      <Card className="w-full max-w-md glass-card animate-fade-in-up">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold tracking-tight text-primary">CodeSync</CardTitle>
-          <CardDescription className="pt-2">
-            The real-time collaborative code editor. Start a session or join one.
+          <CardTitle className="text-4xl font-bold tracking-tight text-primary flex items-center justify-center gap-3">
+            <Code className="h-10 w-10"/> CodeSync
+          </CardTitle>
+          <CardDescription className="pt-2 text-base">
+            Real-time collaborative code editor. Instantly shareable, infinitely scalable.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6 p-6">
@@ -96,7 +94,7 @@ function hello() {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
+              <span className="bg-card/0 px-2 text-muted-foreground backdrop-blur-sm">
                 Or join an existing session
               </span>
             </div>
@@ -108,7 +106,7 @@ function hello() {
               placeholder="Enter Room ID"
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
-              className="text-center"
+              className="text-center bg-input/80"
               onKeyUp={(e) => e.key === 'Enter' && joinSession()}
               disabled={isCreating || isJoining}
             />

@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/lang-cpp": "^6.0.2",
     "@codemirror/lang-javascript": "^6.2.2",
+    "@codemirror/lang-python": "^6.1.6",
     "@genkit-ai/googleai": "^1.14.1",
     "@genkit-ai/next": "^1.14.1",
     "@hookform/resolvers": "^4.1.3",

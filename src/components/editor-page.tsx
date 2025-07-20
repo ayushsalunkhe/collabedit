@@ -1,15 +1,29 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import CodeMirror from '@uiw/react-codemirror';
+import CodeMirror, { type Extension } from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
+import { cpp } from '@codemirror/lang-cpp';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Home, Copy, Wand2, Loader2 } from 'lucide-react';
+import { Home, Copy, Wand2, Loader2, Play, Code } from 'lucide-react';
 import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Terminal } from 'lucide-react';
+
+
+type Language = 'javascript' | 'python' | 'cpp';
 
 interface EditorPageProps {
   roomId: string;
@@ -19,48 +33,62 @@ interface EditorPageProps {
 export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const [code, setCode] = useState<string>('// Loading code...');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [language, setLanguage] = useState<Language>('javascript');
+  const [langExtension, setLangExtension] = useState<Extension>(() => javascript({ jsx: true }));
+  const [isRunning, setIsRunning] = useState(false);
+  const [runOutput, setRunOutput] = useState<string | null>(null);
+
   const { toast } = useToast();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   
-  // A ref to track if the incoming change is from Firestore to prevent feedback loops.
   const isRemoteChange = useRef(true);
 
-  // Debounced function to update Firestore.
-  // This reduces the number of writes, saving costs and improving performance.
-  const updateFirestore = useCallback(async (newCode: string) => {
+  useEffect(() => {
+    switch (language) {
+      case 'python':
+        setLangExtension(python());
+        break;
+      case 'cpp':
+        setLangExtension(cpp());
+        break;
+      case 'javascript':
+      default:
+        setLangExtension(javascript({ jsx: true }));
+        break;
+    }
+  }, [language]);
+
+  const updateFirestore = useCallback(async (newCode: string, newLang?: Language) => {
     try {
-      await setDoc(doc(db, 'rooms', roomId), { code: newCode });
+      await setDoc(doc(db, 'rooms', roomId), { code: newCode, language: newLang || language }, { merge: true });
     } catch (error) {
       console.error('Error updating document:', error);
       toast({ title: 'Error', description: 'Failed to save changes.', variant: 'destructive' });
     }
-  }, [roomId, toast]);
+  }, [roomId, toast, language]);
 
-  const debouncedUpdate = useCallback((newCode: string) => {
+  const debouncedUpdate = useCallback((value: string) => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
-        updateFirestore(newCode);
-      }, 500); // 500ms delay
+        updateFirestore(value);
+      }, 500);
   }, [updateFirestore])
 
-  // This effect listens for real-time changes to the code in Firestore.
   useEffect(() => {
-    isRemoteChange.current = true; // Assume first load is a remote change
+    isRemoteChange.current = true;
     const docRef = doc(db, 'rooms', roomId);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        const remoteCode = docSnap.data().code;
-        // Update local state only if the remote code is different
-        // from the current state. This check is crucial to prevent loops.
-        setCode(currentCode => {
-            if (remoteCode !== currentCode) {
-                isRemoteChange.current = true;
-                return remoteCode;
-            }
-            return currentCode;
-        });
+        const data = docSnap.data();
+        const remoteCode = data.code;
+        const remoteLang = data.language || 'javascript';
+        
+        isRemoteChange.current = true;
+        setCode(remoteCode);
+        setLanguage(remoteLang);
+
       } else {
         toast({ title: 'Error', description: 'Session not found. Returning to home.', variant: 'destructive' });
         onLeave();
@@ -71,7 +99,6 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       onLeave();
     });
 
-    // Cleanup: unsubscribe from listener and clear any pending debounced updates.
     return () => {
       unsubscribe();
       if (debounceRef.current) {
@@ -80,9 +107,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     };
   }, [roomId, onLeave, toast]);
 
-  // This is called when the user types in the CodeMirror editor.
   const onEditorChange = useCallback((value: string) => {
-    // If the change was triggered by a Firestore update, ignore it.
     if (isRemoteChange.current) {
       isRemoteChange.current = false;
       return;
@@ -91,7 +116,11 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     debouncedUpdate(value);
   }, [debouncedUpdate]);
 
-  // Function to copy the Room ID to the clipboard.
+  const handleLanguageChange = (newLang: Language) => {
+      setLanguage(newLang);
+      updateFirestore(code, newLang);
+  }
+  
   const copyRoomId = () => {
     navigator.clipboard.writeText(roomId);
     toast({
@@ -100,7 +129,6 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     });
   };
 
-  // Function to get and apply an AI code suggestion.
   const handleAiSuggestion = async () => {
     setIsAiLoading(true);
     try {
@@ -121,11 +149,20 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     }
   };
 
+  const handleRunCode = async () => {
+    setIsRunning(true);
+    setRunOutput(null);
+    await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network latency & execution time
+    setRunOutput(`Code executed successfully with language: ${language}.\n(This is a simulation, no code was actually executed)`);
+    setIsRunning(false);
+    toast({ title: 'Code "Executed"', description: 'Simulation complete.' });
+  }
+
   return (
     <div className="flex h-screen flex-col bg-background">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-6">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card/80 backdrop-blur-lg px-4 md:px-6">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold text-primary">CodeSync</h1>
+          <h1 className="text-xl font-bold text-primary flex items-center gap-2"><Code /> CodeSync</h1>
           <div className="hidden items-center gap-2 rounded-md border bg-background px-3 py-1.5 md:flex">
             <span className="text-sm font-medium text-muted-foreground">Room:</span>
             <span className="text-sm font-mono font-semibold">{roomId}</span>
@@ -135,41 +172,80 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+            <Select value={language} onValueChange={(value: Language) => handleLanguageChange(value)}>
+                <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="Language" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="javascript">JavaScript</SelectItem>
+                    <SelectItem value="python">Python</SelectItem>
+                    <SelectItem value="cpp">C++</SelectItem>
+                </SelectContent>
+            </Select>
+
           <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading}>
             {isAiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-            Suggest Code
+            Suggest
           </Button>
+
+          <Button onClick={handleRunCode} variant="secondary" disabled={isRunning}>
+              {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+              Run Code
+          </Button>
+          
           <Button onClick={onLeave} variant="secondary">
             <Home className="mr-2 h-4 w-4" />
             Leave
           </Button>
         </div>
       </header>
-      <main className="flex-1 overflow-auto">
-        <CodeMirror
-          value={code}
-          height="calc(100vh - 64px)"
-          extensions={[javascript({ jsx: true })]}
-          theme={vscodeDark}
-          onChange={onEditorChange}
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            highlightSpecialChars: true,
-            foldGutter: true,
-            drawSelection: true,
-            dropCursor: true,
-            allowMultipleSelections: true,
-            indentOnInput: true,
-            syntaxHighlighting: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            rectangularSelection: true,
-            crosshairCursor: true,
-            highlightActiveLine: true,
-          }}
-        />
+      <main className="flex-1 overflow-auto flex flex-col">
+        <div className="flex-1">
+          <CodeMirror
+            value={code}
+            height="calc(100vh - 64px - 140px)"
+            extensions={[langExtension]}
+            theme={vscodeDark}
+            onChange={onEditorChange}
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLineGutter: true,
+              highlightSpecialChars: true,
+              foldGutter: true,
+              drawSelection: true,
+              dropCursor: true,
+              allowMultipleSelections: true,
+              indentOnInput: true,
+              syntaxHighlighting: true,
+              bracketMatching: true,
+              closeBrackets: true,
+              autocompletion: true,
+              rectangularSelection: true,
+              crosshairCursor: true,
+              highlightActiveLine: true,
+            }}
+          />
+        </div>
+        {(isRunning || runOutput) && (
+          <div className="h-[140px] p-4 border-t bg-card/80">
+            <h3 className="text-lg font-semibold mb-2">Output</h3>
+            {isRunning && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Executing code...</span>
+                </div>
+            )}
+            {runOutput && (
+                <Alert>
+                    <Terminal className="h-4 w-4" />
+                    <AlertTitle>Execution Result</AlertTitle>
+                    <AlertDescription className="font-mono whitespace-pre-wrap">
+                        {runOutput}
+                    </AlertDescription>
+                </Alert>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );
