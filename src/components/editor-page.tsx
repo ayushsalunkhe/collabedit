@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -10,7 +11,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Home, Copy, Wand2, Loader2, Play, Code } from 'lucide-react';
+import { Home, Copy, Wand2, Loader2, Play, Code, MessageSquare } from 'lucide-react';
 import { executeCode } from '@/ai/flows/code-execution';
 import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
 import {
@@ -22,6 +23,8 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import ChatPanel from './chat-panel';
 
 
 type Language = 'javascript' | 'python' | 'cpp';
@@ -99,14 +102,14 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   }, [roomId, toast, language]);
 
   const debouncedUpdate = useCallback((value: string) => {
+      isLocalChange.current = true;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
-        ignoreNextSnapshot.current = true;
         updateFirestore(value);
         setTimeout(() => {
-          ignoreNextSnapshot.current = false;
+          isLocalChange.current = false;
         }, 100);
       }, 500);
   }, [updateFirestore])
@@ -114,7 +117,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   useEffect(() => {
     const docRef = doc(db, 'rooms', roomId);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (ignoreNextSnapshot.current) {
+      if (isLocalChange.current) {
         return;
       }
       
@@ -123,7 +126,9 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         const remoteCode = data.code;
         const remoteLang = data.language || 'javascript';
         
-        setCode(remoteCode);
+        if (remoteCode !== code) {
+          setCode(remoteCode);
+        }
         
         if (remoteLang !== language) {
           setLanguage(remoteLang);
@@ -145,7 +150,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [roomId, onLeave, toast, language]);
+  }, [roomId, onLeave, toast, language, code]);
 
   const onEditorChange = useCallback((value: string) => {
     setCode(value);
@@ -157,11 +162,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     setLanguage(newLang);
     setCode(newCode);
     setRunOutput(null); // Clear output on language change
-    ignoreNextSnapshot.current = true;
     updateFirestore(newCode, newLang);
-    setTimeout(() => {
-        ignoreNextSnapshot.current = false;
-    }, 100);
   }
   
   const copyRoomId = () => {
@@ -178,8 +179,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       const result = await getCodeSuggestion({ codeContext: code });
       if (result.suggestion) {
         const newCode = code + '\n' + result.suggestion;
-        setCode(newCode);
-        updateFirestore(newCode);
+        onEditorChange(newCode); // Use onEditorChange to trigger debounce
         toast({ title: 'AI Suggestion Applied', description: 'A new code snippet has been added.' });
       } else {
         toast({ title: 'AI Suggestion', description: 'No suggestion was available.' });
@@ -211,9 +211,23 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   return (
     <div className="flex h-screen flex-col bg-background">
       <header className="flex h-auto shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card/80 p-4 backdrop-blur-lg md:h-16 md:flex-nowrap">
-        <div className="flex w-full items-center justify-between md:w-auto">
+        <div className="flex w-full items-center justify-between md:w-auto md:flex-1">
           <h1 className="text-xl font-bold text-primary flex items-center gap-2"><Code /> CodeSync</h1>
-          <div className="md:hidden">
+          <div className="md:hidden flex items-center gap-2">
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  Chat
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="w-[350px] sm:w-[450px] p-0 flex flex-col">
+                <SheetHeader className="p-4 border-b">
+                  <SheetTitle>Team Chat</SheetTitle>
+                </SheetHeader>
+                <ChatPanel roomId={roomId} />
+              </SheetContent>
+            </Sheet>
             <Button onClick={onLeave} variant="secondary" size="sm">
               <Home className="mr-2 h-4 w-4" />
               Leave
@@ -224,12 +238,12 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         <div className="flex w-full items-center justify-center rounded-md border bg-background px-3 py-1.5 md:w-auto md:justify-start">
           <span className="text-sm font-medium text-muted-foreground">Room:</span>
           <span className="ml-2 text-sm font-mono font-semibold">{roomId}</span>
-          <Button variant="ghost" size="icon" className="ml-auto h-7 w-7" onClick={copyRoomId}>
+          <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={copyRoomId}>
             <Copy className="h-4 w-4" />
           </Button>
         </div>
         
-        <div className="flex w-full items-center justify-between gap-2 md:w-auto">
+        <div className="flex w-full items-center justify-end gap-2 md:w-auto md:flex-1">
             <Select value={language} onValueChange={(value: Language) => handleLanguageChange(value)}>
                 <SelectTrigger className="w-full md:w-[140px]">
                     <SelectValue placeholder="Language" />
@@ -251,7 +265,21 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
               Run
           </Button>
           
-          <div className="hidden md:block">
+          <div className="hidden md:flex items-center gap-2">
+             <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline">
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  Chat
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="w-[400px] sm:w-[540px] p-0 flex flex-col">
+                 <SheetHeader className="p-4 border-b">
+                  <SheetTitle>Team Chat</SheetTitle>
+                </SheetHeader>
+                <ChatPanel roomId={roomId} />
+              </SheetContent>
+            </Sheet>
             <Button onClick={onLeave} variant="secondary">
               <Home className="mr-2 h-4 w-4" />
               Leave
@@ -263,7 +291,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         <div className="flex-1">
           <CodeMirror
             value={code}
-            height={runOutput || isRunning ? "calc(100vh - 64px - 140px - 88px)" : "calc(100vh - 64px - 88px)"}
+            height={runOutput || isRunning ? "calc(100vh - 64px - 140px)" : "calc(100vh - 64px)"}
             extensions={[langExtension]}
             theme={vscodeDark}
             onChange={onEditorChange}
@@ -287,7 +315,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
           />
         </div>
         {(isRunning || runOutput) && (
-          <div className="h-[140px] p-4 border-t bg-card/80">
+          <div className="h-[140px] p-4 border-t bg-card/80 flex flex-col">
             <h3 className="text-lg font-semibold mb-2">Output</h3>
             {isRunning && (
                 <div className="flex items-center gap-2 text-muted-foreground">
@@ -296,7 +324,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
                 </div>
             )}
             {runOutput && (
-                <Alert>
+                <Alert className="flex-1 overflow-auto">
                     <Terminal className="h-4 w-4" />
                     <AlertTitle>Execution Result</AlertTitle>
                     <AlertDescription className="font-mono whitespace-pre-wrap">
