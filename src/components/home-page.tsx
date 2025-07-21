@@ -77,10 +77,10 @@ greet('World');`;
     <div className="flex min-h-screen items-center justify-center bg-transparent p-4">
       <Card className="w-full max-w-md glass-card animate-fade-in-up">
         <CardHeader className="text-center">
-          <CardTitle className="text-4xl font-bold tracking-tight text-primary flex items-center justify-center gap-3">
-            <Code className="h-10 w-10"/> CodeSync
+          <CardTitle className="text-3xl md:text-4xl font-bold tracking-tight text-primary flex items-center justify-center gap-3">
+            <Code className="h-8 w-8 md:h-10 md:w-10"/> CodeSync
           </CardTitle>
-          <CardDescription className="pt-2 text-base">
+          <CardDescription className="pt-2 text-sm md:text-base">
             Real-time collaborative code editor. Instantly shareable, infinitely scalable.
           </CardDescription>
         </CardHeader>
@@ -101,17 +101,17 @@ greet('World');`;
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input
               type="text"
               placeholder="Enter Room ID"
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
-              className="text-center bg-input/80"
+              className="text-center flex-grow bg-input/80"
               onKeyUp={(e) => e.key === 'Enter' && joinSession()}
               disabled={isCreating || isJoining}
             />
-            <Button onClick={joinSession} className="w-full" variant="secondary" disabled={isCreating || isJoining}>
+            <Button onClick={joinSession} className="w-full sm:w-auto" variant="secondary" disabled={isCreating || isJoining}>
               {isJoining && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Join Session
             </Button>

@@ -11,8 +11,8 @@ import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Home, Copy, Wand2, Loader2, Play, Code } from 'lucide-react';
-import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
 import { executeCode } from '@/ai/flows/code-execution';
+import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
 import {
   Select,
   SelectContent,
@@ -72,6 +72,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const { toast } = useToast();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const ignoreNextSnapshot = useRef(false);
+  const isLocalChange = useRef(false);
 
   useEffect(() => {
     switch (language) {
@@ -89,7 +90,6 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   }, [language]);
 
   const updateFirestore = useCallback(async (newCode: string, newLang?: Language) => {
-    ignoreNextSnapshot.current = true;
     try {
       await setDoc(doc(db, 'rooms', roomId), { code: newCode, language: newLang || language }, { merge: true });
     } catch (error) {
@@ -103,7 +103,11 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
+        ignoreNextSnapshot.current = true;
         updateFirestore(value);
+        setTimeout(() => {
+          ignoreNextSnapshot.current = false;
+        }, 100);
       }, 500);
   }, [updateFirestore])
 
@@ -111,7 +115,6 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     const docRef = doc(db, 'rooms', roomId);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (ignoreNextSnapshot.current) {
-        ignoreNextSnapshot.current = false;
         return;
       }
       
@@ -154,7 +157,11 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     setLanguage(newLang);
     setCode(newCode);
     setRunOutput(null); // Clear output on language change
+    ignoreNextSnapshot.current = true;
     updateFirestore(newCode, newLang);
+    setTimeout(() => {
+        ignoreNextSnapshot.current = false;
+    }, 100);
   }
   
   const copyRoomId = () => {
@@ -188,64 +195,43 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const handleRunCode = async () => {
     setIsRunning(true);
     setRunOutput(null);
-
-    if (language === 'javascript') {
-        const output: (string | null)[] = [];
-        const originalConsoleLog = console.log;
-        console.log = (...args) => {
-            const message = args.map(arg => {
-                if (typeof arg === 'object' && arg !== null) {
-                    try {
-                        return JSON.stringify(arg, null, 2);
-                    } catch (e) {
-                        return '[Unserializable Object]';
-                    }
-                }
-                return String(arg);
-            }).join(' ');
-            output.push(message);
-        };
-        try {
-            new Function(code)();
-        } catch (error: any) {
-            output.push(`Error: ${error.message}`);
-        } finally {
-            console.log = originalConsoleLog;
-            setRunOutput(output.join('\n') || 'Code executed. (No output was logged to the console)');
-            setIsRunning(false);
-            toast({ title: 'Code Executed', description: 'JavaScript was run in the browser.' });
-        }
-    } else {
-        try {
-            const result = await executeCode({ code, language });
-            setRunOutput(result.output);
-            toast({ title: 'AI Execution Simulated', description: `AI predicted the output for ${language}.` });
-        } catch (error) {
-            console.error("Error getting AI execution:", error);
-            toast({ title: 'AI Error', description: 'Could not simulate execution.', variant: 'destructive' });
-            setRunOutput('Error: Could not simulate code execution.');
-        } finally {
-            setIsRunning(false);
-        }
+    try {
+        const result = await executeCode({ code, language });
+        setRunOutput(result.output);
+        toast({ title: 'Execution Simulated', description: `AI predicted the output for ${language}.` });
+    } catch (error) {
+        console.error("Error getting AI execution:", error);
+        toast({ title: 'AI Error', description: 'Could not simulate execution.', variant: 'destructive' });
+        setRunOutput('Error: Could not simulate code execution.');
+    } finally {
+        setIsRunning(false);
     }
   };
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card/80 backdrop-blur-lg px-4 md:px-6">
-        <div className="flex items-center gap-4">
+      <header className="flex h-auto shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card/80 p-4 backdrop-blur-lg md:h-16 md:flex-nowrap">
+        <div className="flex w-full items-center justify-between md:w-auto">
           <h1 className="text-xl font-bold text-primary flex items-center gap-2"><Code /> CodeSync</h1>
-          <div className="hidden items-center gap-2 rounded-md border bg-background px-3 py-1.5 md:flex">
-            <span className="text-sm font-medium text-muted-foreground">Room:</span>
-            <span className="text-sm font-mono font-semibold">{roomId}</span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={copyRoomId}>
-              <Copy className="h-4 w-4" />
+          <div className="md:hidden">
+            <Button onClick={onLeave} variant="secondary" size="sm">
+              <Home className="mr-2 h-4 w-4" />
+              Leave
             </Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex w-full items-center justify-center rounded-md border bg-background px-3 py-1.5 md:w-auto md:justify-start">
+          <span className="text-sm font-medium text-muted-foreground">Room:</span>
+          <span className="ml-2 text-sm font-mono font-semibold">{roomId}</span>
+          <Button variant="ghost" size="icon" className="ml-auto h-7 w-7" onClick={copyRoomId}>
+            <Copy className="h-4 w-4" />
+          </Button>
+        </div>
+        
+        <div className="flex w-full items-center justify-between gap-2 md:w-auto">
             <Select value={language} onValueChange={(value: Language) => handleLanguageChange(value)}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-full md:w-[140px]">
                     <SelectValue placeholder="Language" />
                 </SelectTrigger>
                 <SelectContent>
@@ -255,27 +241,29 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
                 </SelectContent>
             </Select>
 
-          <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading || isRunning}>
+          <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading || isRunning} className="flex-1 md:flex-none">
             {isAiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
             Suggest
           </Button>
 
-          <Button onClick={handleRunCode} variant="secondary" disabled={isRunning}>
+          <Button onClick={handleRunCode} variant="secondary" disabled={isRunning} className="flex-1 md:flex-none">
               {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-              Run Code
+              Run
           </Button>
           
-          <Button onClick={onLeave} variant="secondary">
-            <Home className="mr-2 h-4 w-4" />
-            Leave
-          </Button>
+          <div className="hidden md:block">
+            <Button onClick={onLeave} variant="secondary">
+              <Home className="mr-2 h-4 w-4" />
+              Leave
+            </Button>
+          </div>
         </div>
       </header>
       <main className="flex-1 overflow-auto flex flex-col">
         <div className="flex-1">
           <CodeMirror
             value={code}
-            height={runOutput || isRunning ? "calc(100vh - 64px - 140px)" : "calc(100vh - 64px)"}
+            height={runOutput || isRunning ? "calc(100vh - 64px - 140px - 88px)" : "calc(100vh - 64px - 88px)"}
             extensions={[langExtension]}
             theme={vscodeDark}
             onChange={onEditorChange}
