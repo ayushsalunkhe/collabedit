@@ -71,7 +71,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
 
   const { toast } = useToast();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const isRemoteChange = useRef(false);
+  const ignoreNextSnapshot = useRef(false);
 
   useEffect(() => {
     switch (language) {
@@ -89,6 +89,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   }, [language]);
 
   const updateFirestore = useCallback(async (newCode: string, newLang?: Language) => {
+    ignoreNextSnapshot.current = true;
     try {
       await setDoc(doc(db, 'rooms', roomId), { code: newCode, language: newLang || language }, { merge: true });
     } catch (error) {
@@ -107,20 +108,19 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   }, [updateFirestore])
 
   useEffect(() => {
-    isRemoteChange.current = true;
     const docRef = doc(db, 'rooms', roomId);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (ignoreNextSnapshot.current) {
+        ignoreNextSnapshot.current = false;
+        return;
+      }
+      
       if (docSnap.exists()) {
         const data = docSnap.data();
         const remoteCode = data.code;
         const remoteLang = data.language || 'javascript';
-
-        // Only update if the remote code is different from the local code
-        // and if the change is not from the current user.
-        if (remoteCode !== code) {
-          isRemoteChange.current = true;
-          setCode(remoteCode);
-        }
+        
+        setCode(remoteCode);
         
         if (remoteLang !== language) {
           setLanguage(remoteLang);
@@ -142,13 +142,9 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [roomId, onLeave, toast, code, language]);
+  }, [roomId, onLeave, toast, language]);
 
   const onEditorChange = useCallback((value: string) => {
-    if (isRemoteChange.current) {
-      isRemoteChange.current = false;
-      return;
-    }
     setCode(value);
     debouncedUpdate(value);
   }, [debouncedUpdate]);
@@ -158,7 +154,6 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     setLanguage(newLang);
     setCode(newCode);
     setRunOutput(null); // Clear output on language change
-    isRemoteChange.current = false; // This is a local change
     updateFirestore(newCode, newLang);
   }
   
@@ -176,7 +171,6 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       const result = await getCodeSuggestion({ codeContext: code });
       if (result.suggestion) {
         const newCode = code + '\n' + result.suggestion;
-        isRemoteChange.current = false; // This is a local change
         setCode(newCode);
         updateFirestore(newCode);
         toast({ title: 'AI Suggestion Applied', description: 'A new code snippet has been added.' });
