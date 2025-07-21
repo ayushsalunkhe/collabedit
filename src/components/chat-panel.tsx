@@ -7,15 +7,8 @@ import { db, auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, User } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Send } from 'lucide-react';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 interface Message {
   id: string;
@@ -27,37 +20,15 @@ interface Message {
 
 interface ChatPanelProps {
   roomId: string;
+  displayName: string;
 }
 
-const coderNames = [
-  "Logic Llama", "Code Cobra", "Syntax Squirrel", "Bug Badger", "Pixel Puma",
-  "Data Dragon", "Algorithm Antelope", "Query Quokka", "Variable Vulture",
-  "Function Fox", "API Alpaca", "Git Goose", "Dev-otter", "Byte Bison"
-];
-
-// Simple hash function to get a consistent name for a UID
-const getNameForUid = (uid: string) => {
-  let hash = 0;
-  for (let i = 0; i < uid.length; i++) {
-    hash = (hash << 5) - hash + uid.charCodeAt(i);
-    hash |= 0; // Convert to 32bit integer
-  }
-  const index = Math.abs(hash) % coderNames.length;
-  return coderNames[index];
-};
-
-
-export default function ChatPanel({ roomId }: ChatPanelProps) {
+export default function ChatPanel({ roomId, displayName }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [userDisplayName, setUserDisplayName] = useState("Anonymous");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (auth.currentUser) {
-      setUserDisplayName(getNameForUid(auth.currentUser.uid));
-    }
-
     const messagesRef = collection(db, 'rooms', roomId, 'messages');
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
@@ -90,7 +61,7 @@ export default function ChatPanel({ roomId }: ChatPanelProps) {
     await addDoc(messagesRef, {
       text: newMessage,
       uid: auth.currentUser.uid,
-      displayName: userDisplayName,
+      displayName: displayName,
       timestamp: serverTimestamp(),
     });
 
@@ -110,7 +81,7 @@ export default function ChatPanel({ roomId }: ChatPanelProps) {
                 >
                 {msg.uid !== auth.currentUser?.uid && (
                     <Avatar className="w-8 h-8">
-                        <AvatarFallback>{msg.displayName.charAt(0)}</AvatarFallback>
+                        <AvatarFallback>{msg.displayName.charAt(0).toUpperCase()}</AvatarFallback>
                     </Avatar>
                 )}
                 <div
@@ -130,7 +101,7 @@ export default function ChatPanel({ roomId }: ChatPanelProps) {
                 </div>
                 {msg.uid === auth.currentUser?.uid && (
                     <Avatar className="w-8 h-8">
-                        <AvatarFallback>{msg.displayName.charAt(0)}</AvatarFallback>
+                        <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
                     </Avatar>
                 )}
                 </div>

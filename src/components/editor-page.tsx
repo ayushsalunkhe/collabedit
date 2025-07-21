@@ -25,6 +25,18 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import ChatPanel from './chat-panel';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 
 type Language = 'javascript' | 'python' | 'cpp';
@@ -71,10 +83,13 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const [langExtension, setLangExtension] = useState<Extension>(() => javascript({ jsx: true }));
   const [isRunning, setIsRunning] = useState(false);
   const [runOutput, setRunOutput] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string>('');
+  const [isNameDialogOpen, setIsNameDialogOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const tempNameRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const ignoreNextSnapshot = useRef(false);
   const isLocalChange = useRef(false);
 
   useEffect(() => {
@@ -93,24 +108,25 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   }, [language]);
 
   const updateFirestore = useCallback(async (newCode: string, newLang?: Language) => {
+    isLocalChange.current = true;
     try {
       await setDoc(doc(db, 'rooms', roomId), { code: newCode, language: newLang || language }, { merge: true });
     } catch (error) {
       console.error('Error updating document:', error);
       toast({ title: 'Error', description: 'Failed to save changes.', variant: 'destructive' });
+    } finally {
+        setTimeout(() => {
+            isLocalChange.current = false;
+        }, 100);
     }
   }, [roomId, toast, language]);
 
   const debouncedUpdate = useCallback((value: string) => {
-      isLocalChange.current = true;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
       debounceRef.current = setTimeout(() => {
         updateFirestore(value);
-        setTimeout(() => {
-          isLocalChange.current = false;
-        }, 100);
       }, 500);
   }, [updateFirestore])
 
@@ -126,13 +142,8 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         const remoteCode = data.code;
         const remoteLang = data.language || 'javascript';
         
-        if (remoteCode !== code) {
-          setCode(remoteCode);
-        }
-        
-        if (remoteLang !== language) {
-          setLanguage(remoteLang);
-        }
+        setCode(prevCode => remoteCode !== prevCode ? remoteCode : prevCode);
+        setLanguage(prevLang => remoteLang !== prevLang ? remoteLang : prevLang);
 
       } else {
         toast({ title: 'Error', description: 'Session not found. Returning to home.', variant: 'destructive' });
@@ -150,9 +161,11 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [roomId, onLeave, toast, language, code]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, onLeave, toast]);
 
   const onEditorChange = useCallback((value: string) => {
+    isLocalChange.current = true;
     setCode(value);
     debouncedUpdate(value);
   }, [debouncedUpdate]);
@@ -179,7 +192,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       const result = await getCodeSuggestion({ codeContext: code });
       if (result.suggestion) {
         const newCode = code + '\n' + result.suggestion;
-        onEditorChange(newCode); // Use onEditorChange to trigger debounce
+        onEditorChange(newCode);
         toast({ title: 'AI Suggestion Applied', description: 'A new code snippet has been added.' });
       } else {
         toast({ title: 'AI Suggestion', description: 'No suggestion was available.' });
@@ -208,133 +221,175 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     }
   };
 
+  const handleChatClick = () => {
+    if (!displayName) {
+      setIsNameDialogOpen(true);
+    } else {
+      setIsChatOpen(true);
+    }
+  };
+
+  const handleSaveName = () => {
+    const name = tempNameRef.current?.value.trim();
+    if (name) {
+      setDisplayName(name);
+      setIsNameDialogOpen(false);
+      setIsChatOpen(true);
+      sessionStorage.setItem(`displayName-${roomId}`, name);
+    } else {
+      toast({
+        title: "Name Required",
+        description: "Please enter a name to join the chat.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  useEffect(() => {
+    const savedName = sessionStorage.getItem(`displayName-${roomId}`);
+    if (savedName) {
+      setDisplayName(savedName);
+    }
+  }, [roomId]);
+
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <header className="flex h-auto shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card/80 p-4 backdrop-blur-lg md:h-16 md:flex-nowrap">
-        <div className="flex w-full items-center justify-between md:w-auto md:flex-1">
-          <h1 className="text-xl font-bold text-primary flex items-center gap-2"><Code /> CodeSync</h1>
-          <div className="md:hidden flex items-center gap-2">
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  Chat
+    <>
+      <AlertDialog open={isNameDialogOpen} onOpenChange={setIsNameDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>What should we call you?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Enter a display name to use in the chat.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-2 py-2">
+             <Label htmlFor="name">Display Name</Label>
+             <Input id="name" placeholder="Ada Lovelace" ref={tempNameRef} onKeyUp={(e) => e.key === 'Enter' && handleSaveName()} />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveName}>Save</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="flex h-screen flex-col bg-background">
+        <header className="flex h-auto shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card/80 p-4 backdrop-blur-lg md:h-16 md:flex-nowrap">
+          <div className="flex w-full items-center justify-between md:w-auto md:flex-1">
+            <h1 className="text-xl font-bold text-primary flex items-center gap-2"><Code /> CodeSync</h1>
+            <div className="md:hidden flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleChatClick}>
+                    <MessageSquare className="mr-2 h-4 w-4" />
+                    Chat
                 </Button>
-              </SheetTrigger>
-              <SheetContent className="w-[350px] sm:w-[450px] p-0 flex flex-col">
-                <SheetHeader className="p-4 border-b">
-                  <SheetTitle>Team Chat</SheetTitle>
-                </SheetHeader>
-                <ChatPanel roomId={roomId} />
-              </SheetContent>
-            </Sheet>
-            <Button onClick={onLeave} variant="secondary" size="sm">
-              <Home className="mr-2 h-4 w-4" />
-              Leave
+              <Button onClick={onLeave} variant="secondary" size="sm">
+                <Home className="mr-2 h-4 w-4" />
+                Leave
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex w-full items-center justify-center rounded-md border bg-background px-3 py-1.5 md:w-auto md:justify-start">
+            <span className="text-sm font-medium text-muted-foreground">Room:</span>
+            <span className="ml-2 text-sm font-mono font-semibold">{roomId}</span>
+            <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={copyRoomId}>
+              <Copy className="h-4 w-4" />
             </Button>
           </div>
-        </div>
-
-        <div className="flex w-full items-center justify-center rounded-md border bg-background px-3 py-1.5 md:w-auto md:justify-start">
-          <span className="text-sm font-medium text-muted-foreground">Room:</span>
-          <span className="ml-2 text-sm font-mono font-semibold">{roomId}</span>
-          <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={copyRoomId}>
-            <Copy className="h-4 w-4" />
-          </Button>
-        </div>
-        
-        <div className="flex w-full items-center justify-end gap-2 md:w-auto md:flex-1">
-            <Select value={language} onValueChange={(value: Language) => handleLanguageChange(value)}>
-                <SelectTrigger className="w-full md:w-[140px]">
-                    <SelectValue placeholder="Language" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="javascript">JavaScript</SelectItem>
-                    <SelectItem value="python">Python</SelectItem>
-                    <SelectItem value="cpp">C++</SelectItem>
-                </SelectContent>
-            </Select>
-
-          <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading || isRunning} className="flex-1 md:flex-none">
-            {isAiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-            Suggest
-          </Button>
-
-          <Button onClick={handleRunCode} variant="secondary" disabled={isRunning} className="flex-1 md:flex-none">
-              {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-              Run
-          </Button>
           
-          <div className="hidden md:flex items-center gap-2">
-             <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="outline">
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  Chat
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="w-[400px] sm:w-[540px] p-0 flex flex-col">
-                 <SheetHeader className="p-4 border-b">
-                  <SheetTitle>Team Chat</SheetTitle>
-                </SheetHeader>
-                <ChatPanel roomId={roomId} />
-              </SheetContent>
-            </Sheet>
-            <Button onClick={onLeave} variant="secondary">
-              <Home className="mr-2 h-4 w-4" />
-              Leave
+          <div className="flex w-full items-center justify-end gap-2 md:w-auto md:flex-1">
+              <Select value={language} onValueChange={(value: Language) => handleLanguageChange(value)}>
+                  <SelectTrigger className="w-full md:w-[140px]">
+                      <SelectValue placeholder="Language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                      <SelectItem value="javascript">JavaScript</SelectItem>
+                      <SelectItem value="python">Python</SelectItem>
+                      <SelectItem value="cpp">C++</SelectItem>
+                  </SelectContent>
+              </Select>
+
+            <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading || isRunning} className="flex-1 md:flex-none">
+              {isAiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+              Suggest
             </Button>
+
+            <Button onClick={handleRunCode} variant="secondary" disabled={isRunning} className="flex-1 md:flex-none">
+                {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                Run
+            </Button>
+            
+            <div className="hidden md:flex items-center gap-2">
+              <Sheet open={isChatOpen} onOpenChange={setIsChatOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="outline" onClick={handleChatClick}>
+                    <MessageSquare className="mr-2 h-4 w-4" />
+                    Chat
+                  </Button>
+                </SheetTrigger>
+                <SheetContent className="w-[400px] sm:w-[540px] p-0 flex flex-col">
+                  <SheetHeader className="p-4 border-b">
+                    <SheetTitle>Team Chat</SheetTitle>
+                  </SheetHeader>
+                  {displayName && <ChatPanel roomId={roomId} displayName={displayName} />}
+                </SheetContent>
+              </Sheet>
+              <Button onClick={onLeave} variant="secondary">
+                <Home className="mr-2 h-4 w-4" />
+                Leave
+              </Button>
+            </div>
           </div>
-        </div>
-      </header>
-      <main className="flex-1 overflow-auto flex flex-col">
-        <div className="flex-1">
-          <CodeMirror
-            value={code}
-            height={runOutput || isRunning ? "calc(100vh - 64px - 140px)" : "calc(100vh - 64px)"}
-            extensions={[langExtension]}
-            theme={vscodeDark}
-            onChange={onEditorChange}
-            basicSetup={{
-              lineNumbers: true,
-              highlightActiveLineGutter: true,
-              highlightSpecialChars: true,
-              foldGutter: true,
-              drawSelection: true,
-              dropCursor: true,
-              allowMultipleSelections: true,
-              indentOnInput: true,
-              syntaxHighlighting: true,
-              bracketMatching: true,
-              closeBrackets: true,
-              autocompletion: true,
-              rectangularSelection: true,
-              crosshairCursor: true,
-              highlightActiveLine: true,
-            }}
-          />
-        </div>
-        {(isRunning || runOutput) && (
-          <div className="h-[140px] p-4 border-t bg-card/80 flex flex-col">
-            <h3 className="text-lg font-semibold mb-2">Output</h3>
-            {isRunning && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Executing code...</span>
-                </div>
-            )}
-            {runOutput && (
-                <Alert className="flex-1 overflow-auto">
-                    <Terminal className="h-4 w-4" />
-                    <AlertTitle>Execution Result</AlertTitle>
-                    <AlertDescription className="font-mono whitespace-pre-wrap">
-                        {runOutput}
-                    </AlertDescription>
-                </Alert>
-            )}
+        </header>
+        <main className="flex-1 overflow-auto flex flex-col">
+          <div className="flex-1">
+            <CodeMirror
+              value={code}
+              height={runOutput || isRunning ? "calc(100vh - 64px - 140px)" : "calc(100vh - 64px)"}
+              extensions={[langExtension]}
+              theme={vscodeDark}
+              onChange={onEditorChange}
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLineGutter: true,
+                highlightSpecialChars: true,
+                foldGutter: true,
+                drawSelection: true,
+                dropCursor: true,
+                allowMultipleSelections: true,
+                indentOnInput: true,
+                syntaxHighlighting: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                autocompletion: true,
+                rectangularSelection: true,
+                crosshairCursor: true,
+                highlightActiveLine: true,
+              }}
+            />
           </div>
-        )}
-      </main>
-    </div>
+          {(isRunning || runOutput) && (
+            <div className="h-[140px] p-4 border-t bg-card/80 flex flex-col">
+              <h3 className="text-lg font-semibold mb-2">Output</h3>
+              {isRunning && (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Executing code...</span>
+                  </div>
+              )}
+              {runOutput && (
+                  <Alert className="flex-1 overflow-auto">
+                      <Terminal className="h-4 w-4" />
+                      <AlertTitle>Execution Result</AlertTitle>
+                      <AlertDescription className="font-mono whitespace-pre-wrap">
+                          {runOutput}
+                      </AlertDescription>
+                  </Alert>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
+    </>
   );
 }
