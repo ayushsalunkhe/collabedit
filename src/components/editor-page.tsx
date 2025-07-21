@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Home, Copy, Wand2, Loader2, Play, Code } from 'lucide-react';
 import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
+import { executeCode } from '@/ai/flows/code-execution';
 import {
   Select,
   SelectContent,
@@ -70,7 +71,6 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
 
   const { toast } = useToast();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  
   const isRemoteChange = useRef(false);
 
   useEffect(() => {
@@ -114,22 +114,17 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         const data = docSnap.data();
         const remoteCode = data.code;
         const remoteLang = data.language || 'javascript';
-        
-        isRemoteChange.current = true;
-        
-        setCode(currentCode => {
-          if(remoteCode !== currentCode) {
-            return remoteCode;
-          }
-          return currentCode;
-        });
 
-        setLanguage(currentLang => {
-          if (remoteLang !== currentLang) {
-            return remoteLang;
-          }
-          return currentLang;
-        });
+        // Only update if the remote code is different from the local code
+        // and if the change is not from the current user.
+        if (remoteCode !== code) {
+          isRemoteChange.current = true;
+          setCode(remoteCode);
+        }
+        
+        if (remoteLang !== language) {
+          setLanguage(remoteLang);
+        }
 
       } else {
         toast({ title: 'Error', description: 'Session not found. Returning to home.', variant: 'destructive' });
@@ -147,8 +142,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         clearTimeout(debounceRef.current);
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, onLeave, toast]);
+  }, [roomId, onLeave, toast, code, language]);
 
   const onEditorChange = useCallback((value: string) => {
     if (isRemoteChange.current) {
@@ -164,6 +158,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     setLanguage(newLang);
     setCode(newCode);
     setRunOutput(null); // Clear output on language change
+    isRemoteChange.current = false; // This is a local change
     updateFirestore(newCode, newLang);
   }
   
@@ -181,6 +176,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       const result = await getCodeSuggestion({ codeContext: code });
       if (result.suggestion) {
         const newCode = code + '\n' + result.suggestion;
+        isRemoteChange.current = false; // This is a local change
         setCode(newCode);
         updateFirestore(newCode);
         toast({ title: 'AI Suggestion Applied', description: 'A new code snippet has been added.' });
@@ -195,42 +191,50 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     }
   };
 
-  const handleRunCode = () => {
+  const handleRunCode = async () => {
     setIsRunning(true);
     setRunOutput(null);
-    const output: (string | null)[] = [];
 
-    // Temporarily override console.log to capture output
-    const originalConsoleLog = console.log;
-    console.log = (...args) => {
-        const message = args.map(arg => {
-            if (typeof arg === 'object' && arg !== null) {
-                try {
-                    return JSON.stringify(arg, null, 2);
-                } catch (e) {
-                    return '[Unserializable Object]';
+    if (language === 'javascript') {
+        const output: (string | null)[] = [];
+        const originalConsoleLog = console.log;
+        console.log = (...args) => {
+            const message = args.map(arg => {
+                if (typeof arg === 'object' && arg !== null) {
+                    try {
+                        return JSON.stringify(arg, null, 2);
+                    } catch (e) {
+                        return '[Unserializable Object]';
+                    }
                 }
-            }
-            return String(arg);
-        }).join(' ');
-        output.push(message);
-    };
-
-    try {
-        // Use a function constructor for safer, sandboxed execution than direct eval
-        new Function(code)();
-    } catch (error: any) {
-        output.push(`Error: ${error.message}`);
-    } finally {
-        // Restore original console.log and set output
-        console.log = originalConsoleLog;
-        setRunOutput(output.join('\n') || 'Code executed. (No output was logged to the console)');
-        setIsRunning(false);
-        toast({ title: 'Code Executed', description: 'JavaScript was run in the browser.' });
+                return String(arg);
+            }).join(' ');
+            output.push(message);
+        };
+        try {
+            new Function(code)();
+        } catch (error: any) {
+            output.push(`Error: ${error.message}`);
+        } finally {
+            console.log = originalConsoleLog;
+            setRunOutput(output.join('\n') || 'Code executed. (No output was logged to the console)');
+            setIsRunning(false);
+            toast({ title: 'Code Executed', description: 'JavaScript was run in the browser.' });
+        }
+    } else {
+        try {
+            const result = await executeCode({ code, language });
+            setRunOutput(result.output);
+            toast({ title: 'AI Execution Simulated', description: `AI predicted the output for ${language}.` });
+        } catch (error) {
+            console.error("Error getting AI execution:", error);
+            toast({ title: 'AI Error', description: 'Could not simulate execution.', variant: 'destructive' });
+            setRunOutput('Error: Could not simulate code execution.');
+        } finally {
+            setIsRunning(false);
+        }
     }
   };
-
-  const isRunDisabled = language !== 'javascript' || isRunning;
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -257,12 +261,12 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
                 </SelectContent>
             </Select>
 
-          <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading}>
+          <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading || isRunning}>
             {isAiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
             Suggest
           </Button>
 
-          <Button onClick={handleRunCode} variant="secondary" disabled={isRunDisabled} title={language !== 'javascript' ? 'Code execution is only available for JavaScript' : 'Run Code'}>
+          <Button onClick={handleRunCode} variant="secondary" disabled={isRunning}>
               {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
               Run Code
           </Button>
