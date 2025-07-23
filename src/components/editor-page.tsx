@@ -374,7 +374,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   return (
     <>
       <AlertDialog open={isNameDialogOpen} onOpenChange={setIsNameDialogOpen}>
-        <AlertDialogContent className="z-[9999]">
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>What should we call you?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -393,7 +393,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       </AlertDialog>
 
       <div className="flex h-screen flex-col bg-background">
-        <header className="flex h-auto shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card/80 p-4 backdrop-blur-lg md:h-16 md:flex-nowrap">
+        <header className="flex h-auto shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card/80 p-4 backdrop-blur-lg md:h-16 md:flex-nowrap relative z-10">
           <div className="flex w-full items-center justify-between md:w-auto md:flex-1">
             <h1 className="text-xl font-bold text-primary flex items-center gap-2"><Code /> CodeSync</h1>
             <div className="md:hidden flex items-center gap-2">
