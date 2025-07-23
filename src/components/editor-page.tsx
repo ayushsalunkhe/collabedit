@@ -11,9 +11,10 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Home, Copy, Wand2, Loader2, Play, Code, MessageSquare } from 'lucide-react';
+import { Home, Copy, Wand2, Loader2, Play, Code, MessageSquare, Bug } from 'lucide-react';
 import { executeCode } from '@/ai/flows/code-execution';
 import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
+import { debugCode, type DebugCodeOutput } from '@/ai/flows/debug-code';
 import {
   Select,
   SelectContent,
@@ -82,7 +83,9 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const [language, setLanguage] = useState<Language>('javascript');
   const [langExtension, setLangExtension] = useState<Extension>(() => javascript({ jsx: true }));
   const [isRunning, setIsRunning] = useState(false);
+  const [isDebugging, setIsDebugging] = useState(false);
   const [runOutput, setRunOutput] = useState<string | null>(null);
+  const [debugAnalysis, setDebugAnalysis] = useState<DebugCodeOutput | null>(null);
   const [displayName, setDisplayName] = useState<string>('');
   const [isNameDialogOpen, setIsNameDialogOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -91,6 +94,9 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const { toast } = useToast();
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const isLocalChange = useRef(false);
+
+  // Computed state to check if the output is an error
+  const isErrorOutput = runOutput && /error/i.test(runOutput);
 
   useEffect(() => {
     switch (language) {
@@ -175,6 +181,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     setLanguage(newLang);
     setCode(newCode);
     setRunOutput(null); // Clear output on language change
+    setDebugAnalysis(null);
     updateFirestore(newCode, newLang);
   }
   
@@ -188,6 +195,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
 
   const handleAiSuggestion = async () => {
     setIsAiLoading(true);
+    setDebugAnalysis(null);
     try {
       const result = await getCodeSuggestion({ codeContext: code });
       if (result.suggestion) {
@@ -208,6 +216,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const handleRunCode = async () => {
     setIsRunning(true);
     setRunOutput(null);
+    setDebugAnalysis(null);
     try {
         const result = await executeCode({ code, language });
         setRunOutput(result.output);
@@ -218,6 +227,21 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         setRunOutput('Error: Could not simulate code execution.');
     } finally {
         setIsRunning(false);
+    }
+  };
+
+  const handleDebugCode = async () => {
+    if (!runOutput) return;
+    setIsDebugging(true);
+    try {
+      const result = await debugCode({ code, language, errorMessage: runOutput });
+      setDebugAnalysis(result);
+      toast({ title: 'AI Debugger', description: 'Analysis complete.' });
+    } catch (error) {
+      console.error("Error getting AI debug analysis:", error);
+      toast({ title: 'AI Error', description: 'Could not retrieve debug analysis.', variant: 'destructive' });
+    } finally {
+      setIsDebugging(false);
     }
   };
 
@@ -235,7 +259,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       setDisplayName(name);
       setIsNameDialogOpen(false);
       setIsChatOpen(true);
-      sessionStorage.setItem(`displayName-${roomId}`, name);
+      localStorage.setItem(`displayName-${roomId}`, name);
     } else {
       toast({
         title: "Name Required",
@@ -246,20 +270,23 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   };
 
   useEffect(() => {
-    const savedName = sessionStorage.getItem(`displayName-${roomId}`);
+    const savedName = localStorage.getItem(`displayName-${roomId}`);
     if (savedName) {
       setDisplayName(savedName);
     }
   }, [roomId]);
+  
+  const bottomPanelHeight = runOutput || isRunning ? "h-[250px]" : "h-0";
+  const editorHeight = `calc(100vh - 64px - ${runOutput || isRunning ? "250px" : "0px"})`;
 
   return (
     <>
       <AlertDialog open={isNameDialogOpen} onOpenChange={setIsNameDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="z-[9999]">
           <AlertDialogHeader>
             <AlertDialogTitle>What should we call you?</AlertDialogTitle>
             <AlertDialogDescription>
-              Enter a display name to use in the chat.
+              Enter a display name to use in the chat and voice channel.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-2 py-2">
@@ -331,7 +358,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
                   <SheetHeader className="p-4 border-b">
                     <SheetTitle>Team Chat</SheetTitle>
                   </SheetHeader>
-                  {displayName && <ChatPanel roomId={roomId} displayName={displayName} />}
+                  {displayName ? <ChatPanel roomId={roomId} displayName={displayName} /> : <div className="p-4 text-center text-muted-foreground">Please set a name to chat.</div>}
                 </SheetContent>
               </Sheet>
               <Button onClick={onLeave} variant="secondary">
@@ -342,10 +369,10 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
           </div>
         </header>
         <main className="flex-1 overflow-auto flex flex-col">
-          <div className="flex-1">
+          <div className="flex-1" style={{height: editorHeight}}>
             <CodeMirror
               value={code}
-              height={runOutput || isRunning ? "calc(100vh - 64px - 140px)" : "calc(100vh - 64px)"}
+              height="100%"
               extensions={[langExtension]}
               theme={vscodeDark}
               onChange={onEditorChange}
@@ -369,23 +396,62 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
             />
           </div>
           {(isRunning || runOutput) && (
-            <div className="h-[140px] p-4 border-t bg-card/80 flex flex-col">
-              <h3 className="text-lg font-semibold mb-2">Output</h3>
+            <div className={`p-4 border-t bg-card/80 flex flex-col transition-all duration-300 ${bottomPanelHeight}`}>
+                <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-semibold">Output</h3>
+                    {isErrorOutput && (
+                        <Button onClick={handleDebugCode} variant="destructive" size="sm" disabled={isDebugging}>
+                            {isDebugging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bug className="mr-2 h-4 w-4" />}
+                            Debug with AI
+                        </Button>
+                    )}
+                </div>
+              
               {isRunning && (
                   <div className="flex items-center gap-2 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <span>Executing code...</span>
                   </div>
               )}
-              {runOutput && (
-                  <Alert className="flex-1 overflow-auto">
-                      <Terminal className="h-4 w-4" />
-                      <AlertTitle>Execution Result</AlertTitle>
-                      <AlertDescription className="font-mono whitespace-pre-wrap">
-                          {runOutput}
-                      </AlertDescription>
-                  </Alert>
-              )}
+              <div className="flex-1 overflow-auto flex gap-4">
+                {runOutput && (
+                    <Alert variant={isErrorOutput ? 'destructive' : 'default'} className="flex-1 overflow-auto">
+                        <Terminal className="h-4 w-4" />
+                        <AlertTitle>Execution Result</AlertTitle>
+                        <AlertDescription className="font-mono whitespace-pre-wrap text-sm">
+                            {runOutput}
+                        </AlertDescription>
+                    </Alert>
+                )}
+                {(isDebugging || debugAnalysis) && (
+                    <div className="flex-1">
+                        {isDebugging && (
+                            <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                                <span>Analyzing error...</span>
+                            </div>
+                        )}
+                        {debugAnalysis && (
+                            <Alert variant="default" className="flex-1 overflow-auto bg-background/50 h-full">
+                                <Bug className="h-4 w-4" />
+                                <AlertTitle>AI Debugger Analysis</AlertTitle>
+                                <AlertDescription>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <h4 className="font-semibold mb-1">Explanation</h4>
+                                            <p className="text-sm">{debugAnalysis.explanation}</p>
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold mb-1">Suggested Fix</h4>
+                                            <pre className="bg-muted p-2 rounded-md font-mono text-sm overflow-auto"><code>{debugAnalysis.suggestion}</code></pre>
+                                        </div>
+                                    </div>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                    </div>
+                )}
+              </div>
             </div>
           )}
         </main>
