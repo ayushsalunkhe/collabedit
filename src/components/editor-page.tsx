@@ -107,22 +107,64 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   // Computed state to check if the output is an error
   const isErrorOutput = runOutput && /error/i.test(runOutput);
 
+  // Function to handle cleanup when user leaves
   const handleLeavePage = useCallback(async () => {
     if (auth.currentUser) {
         const participantRef = doc(db, 'rooms', roomId, 'participants', auth.currentUser.uid);
-        await deleteDoc(participantRef);
+        try {
+            await deleteDoc(participantRef);
+        } catch (error) {
+            console.error("Error removing participant:", error)
+        }
     }
     onLeave();
   }, [roomId, onLeave]);
 
+  // Effect for handling page lifecycle events (leaving, refresh)
   useEffect(() => {
-    // Handling user leaving the page
-    window.addEventListener('beforeunload', handleLeavePage);
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        // This sync call is not guaranteed, but it's the best we can do.
+        handleLeavePage();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
-        window.removeEventListener('beforeunload', handleLeavePage);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [handleLeavePage]);
 
+  // Effect for setting up presence heartbeat
+  useEffect(() => {
+    let heartbeatInterval: NodeJS.Timeout | null = null;
+
+    const setupHeartbeat = () => {
+        if (auth.currentUser && displayName) {
+            const participantRef = doc(db, 'rooms', roomId, 'participants', auth.currentUser.uid);
+            
+            // Set initial presence
+            setDoc(participantRef, { 
+                displayName: displayName,
+                lastSeen: serverTimestamp() 
+            }, { merge: true });
+
+            // Update presence every 15 seconds
+            heartbeatInterval = setInterval(() => {
+                setDoc(participantRef, { lastSeen: serverTimestamp() }, { merge: true });
+            }, 15000); // 15 seconds
+        }
+    };
+    
+    if (displayName) {
+        setupHeartbeat();
+    }
+
+    return () => {
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+        }
+    };
+  }, [roomId, displayName]);
+  
   useEffect(() => {
     switch (language) {
       case 'python':
@@ -303,16 +345,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     const name = tempNameRef.current?.value.trim();
     if (name) {
       setDisplayName(name);
-      localStorage.setItem(`displayName-${roomId}`, name);
-      
-      if (auth.currentUser) {
-        const participantRef = doc(db, 'rooms', roomId, 'participants', auth.currentUser.uid);
-        await setDoc(participantRef, {
-            displayName: name,
-            lastSeen: serverTimestamp()
-        });
-      }
-
+      localStorage.setItem(`displayName-${roomId}`, name); // Save to local storage for persistence
       setIsNameDialogOpen(false);
       setIsChatOpen(true);
     } else {
@@ -324,17 +357,11 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     }
   };
 
+  // Effect to retrieve name from local storage or prompt for it
   useEffect(() => {
     const savedName = localStorage.getItem(`displayName-${roomId}`);
     if (savedName) {
       setDisplayName(savedName);
-       if (auth.currentUser) {
-            const participantRef = doc(db, 'rooms', roomId, 'participants', auth.currentUser.uid);
-            setDoc(participantRef, {
-                displayName: savedName,
-                lastSeen: serverTimestamp()
-            }, { merge: true });
-        }
     } else {
       // If no name, prompt user to enter one
       setIsNameDialogOpen(true);
@@ -359,7 +386,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
              <Input id="name" placeholder="Ada Lovelace" ref={tempNameRef} onKeyUp={(e) => e.key === 'Enter' && handleSaveName()} />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => onLeave()}>Leave</AlertDialogCancel>
+            <AlertDialogCancel onClick={handleLeavePage}>Leave</AlertDialogCancel>
             <AlertDialogAction onClick={handleSaveName}>Join</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

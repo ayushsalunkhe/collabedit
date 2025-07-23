@@ -25,23 +25,30 @@ export default function ParticipantList({ roomId }: ParticipantListProps) {
   const [participants, setParticipants] = useState<Participant[]>([]);
 
   useEffect(() => {
+    if (!roomId) return;
+    
     const participantsRef = collection(db, 'rooms', roomId, 'participants');
     
-    // Query for participants seen in the last 60 seconds
-    const recentParticipantsQuery = query(participantsRef, 
-      where('lastSeen', '>', Timestamp.fromMillis(Date.now() - 60000))
+    // Query for participants seen in the last 30 seconds
+    const recentParticipantsQuery = query(
+      participantsRef, 
+      where('lastSeen', '>', Timestamp.fromMillis(Date.now() - 30000)) // 30 second threshold
     );
 
     const unsubscribe = onSnapshot(recentParticipantsQuery, (querySnapshot) => {
       const activeParticipants: Participant[] = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        activeParticipants.push({
-          id: doc.id,
-          displayName: data.displayName || 'Anonymous',
-        });
+        if (data.displayName) {
+          activeParticipants.push({
+            id: doc.id,
+            displayName: data.displayName,
+          });
+        }
       });
       setParticipants(activeParticipants);
+    }, (error) => {
+      console.error("Error fetching participants:", error);
     });
 
     return () => unsubscribe();
@@ -52,12 +59,12 @@ export default function ParticipantList({ roomId }: ParticipantListProps) {
   }
 
   return (
-    <TooltipProvider>
+    <TooltipProvider delayDuration={0}>
       <div className="flex items-center -space-x-2 mr-4">
         {participants.map((p) => (
           <Tooltip key={p.id}>
-            <TooltipTrigger>
-              <Avatar className="w-7 h-7 border-2 border-background">
+            <TooltipTrigger asChild>
+              <Avatar className="w-7 h-7 border-2 border-background cursor-pointer">
                 <AvatarFallback className="text-xs">{p.displayName.charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
             </TooltipTrigger>
