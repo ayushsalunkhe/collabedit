@@ -484,6 +484,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
         <main className="flex-1 overflow-auto flex flex-col">
           <div className="flex-1" style={{height: editorHeight}}>
             <CodeMirror
+              className="cm-theme-custom"
               value={code}
               height="100%"
               extensions={[langExtension]}
