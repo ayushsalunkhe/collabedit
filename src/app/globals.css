@@ -221,3 +221,19 @@
 .btn:hover::before {
   left: 100%;
 }
+
+/* CodeMirror editor visibility fix */
+.cm-editor {
+    color: #abb2bf; /* Default text color for vscode-dark */
+}
+.cm-cursor {
+    border-left-color: #abb2bf !important;
+}
+.cm-selectionBackground {
+    background: #3a3d41 !important;
+}
+.cm-gutters {
+    background-color: #282c34;
+    color: #5c6370;
+    border-right: 1px solid #3a3d41;
+}
