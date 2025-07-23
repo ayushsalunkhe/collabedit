@@ -72,12 +72,63 @@
   }
   body {
     @apply bg-background text-foreground;
-    background-image:
-      radial-gradient(at 20% 20%, hsl(var(--primary) / 0.15) 0px, transparent 50%),
-      radial-gradient(at 80% 80%, hsl(var(--accent) / 0.15) 0px, transparent 50%);
   }
 }
 
 .glass-card {
   @apply bg-card backdrop-blur-lg border;
+}
+
+/* Aurora Background Animation */
+.aurora-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: -10;
+}
+
+.aurora-background::before, .aurora-background::after {
+  content: '';
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  filter: blur(80px);
+  opacity: 0.25;
+  will-change: transform;
+}
+
+.aurora-background::before {
+  background: radial-gradient(circle at 20% 20%, hsl(var(--primary)), transparent 40%);
+  animation: rotate 30s linear infinite;
+}
+
+.aurora-background::after {
+  background: radial-gradient(circle at 80% 80%, hsl(var(--accent)), transparent 40%);
+  animation: rotate 40s linear infinite reverse;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 1s ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.8s ease-out forwards;
 }
