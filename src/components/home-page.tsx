@@ -6,7 +6,7 @@ import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Code } from 'lucide-react';
+import { Loader2, Code, LogIn, PlusCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -30,16 +30,18 @@ export default function HomePage({ onEnterRoom }: HomePageProps) {
       const x = e.clientX - left;
       const y = e.clientY - top;
       
-      const rotateX = (y / height - 0.5) * -15; // Invert for natural feel
+      const rotateX = (y / height - 0.5) * -15;
       const rotateY = (x / width - 0.5) * 15;
       
-      card.style.setProperty('--x', `${x}px`);
-      card.style.setProperty('--y', `${y}px`);
+      card.style.setProperty('--mouse-x', `${x}px`);
+      card.style.setProperty('--mouse-y', `${y}px`);
       card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.05, 1.05, 1.05)`;
     };
 
     const handleMouseLeave = () => {
       card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
+      card.style.removeProperty('--mouse-x');
+      card.style.removeProperty('--mouse-y');
     };
 
     card.addEventListener('mousemove', handleMouseMove);
@@ -106,59 +108,67 @@ greet('World');`;
   };
   
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden">
-      <div className="aurora-background" />
+    <div className="flex min-h-screen items-center justify-center p-4 relative hero">
       <div
         ref={cardRef}
-        style={{ '--x': '50%', '--y': '50%' } as React.CSSProperties}
         className={cn(
-          "w-full max-w-md transform-gpu transition-transform duration-300 ease-out",
-          "relative before:absolute before:inset-0 before:z-0 before:rounded-[inherit]",
-          "before:bg-[radial-gradient(400px_circle_at_var(--x)_var(--y),_hsl(var(--primary)/0.2),_transparent_40%)]",
-          "hover:before:opacity-100"
+          "w-full max-w-lg transform-gpu transition-transform duration-500 ease-out",
+          "relative will-change-transform"
         )}
       >
-        <Card className="w-full glass-card relative z-10 transition-all duration-300">
-          <CardHeader className="text-center animate-fade-in" style={{ animationDelay: '0.2s' }}>
-            <CardTitle className="text-3xl md:text-4xl font-bold tracking-tight text-primary flex items-center justify-center gap-3">
-              <Code className="h-8 w-8 md:h-10 md:w-10"/> CodeSync
+        <Card className="w-full bg-glass-bg backdrop-blur-xl border border-glass-border rounded-[28px] shadow-2xl shadow-black/20 overflow-hidden"
+              style={{
+                '--mouse-x': '50%',
+                '--mouse-y': '50%',
+                animation: 'floatIn 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both'
+              } as React.CSSProperties}
+        >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--mouse-x)_var(--mouse-y),_hsl(var(--primary)/0.15),_transparent_40%)] transition-all duration-500 opacity-0 hover:opacity-100"></div>
+          <div className="absolute top-0 left-0 w-full h-[4px] bg-gradient-to-r from-primary to-accent"></div>
+          
+          <CardHeader className="text-center p-12" style={{ animation: 'fadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}>
+            <div className="flex justify-center items-center mb-4">
+              <Code className="h-12 w-12 text-primary drop-shadow-[0_0_10px_hsl(var(--primary-glow))]"/>
+            </div>
+            <CardTitle className="text-5xl font-bold tracking-tight bg-gradient-to-br from-foreground to-muted-foreground bg-clip-text text-transparent">
+              CodeSync
             </CardTitle>
-            <CardDescription className="pt-2 text-sm md:text-base">
-              Real-time collaborative code editor. Instantly shareable, infinitely scalable.
+            <CardDescription className="pt-2 text-lg text-muted-foreground font-light">
+              Enter the future of collaboration.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6 p-6">
-            <div className="animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
-              <Button onClick={createNewSession} className="w-full font-semibold" disabled={isCreating || isJoining} size="lg" variant="default">
-                {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <CardContent className="space-y-6 px-10 pb-10">
+            <div style={{ animation: 'fadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both' }}>
+              <Button onClick={createNewSession} className="w-full font-semibold btn text-lg bg-gradient-to-r from-primary to-blue-500 hover:shadow-[0_8px_25px_hsl(var(--primary-glow))] hover:-translate-y-1" disabled={isCreating || isJoining} size="lg">
+                {isCreating ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <PlusCircle className="mr-2 h-5 w-5"/>}
                 Create New Session
               </Button>
             </div>
             
-            <div className="relative animate-fade-in" style={{ animationDelay: '0.6s' }}>
+            <div className="relative" style={{ animation: 'fadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both' }}>
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
+                <span className="w-full border-t border-glass-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card/0 px-2 text-muted-foreground backdrop-blur-sm">
-                  Or join an existing session
+                <span className="bg-glass-bg px-2 text-muted-foreground backdrop-blur-sm rounded-full">
+                  Or Join
                 </span>
               </div>
             </div>
             
-            <div className="flex flex-col sm:flex-row gap-2 animate-fade-in-up" style={{ animationDelay: '0.8s' }}>
+            <div className="flex flex-col sm:flex-row gap-2" style={{ animation: 'fadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both' }}>
               <Input
                 type="text"
                 placeholder="Enter Room ID"
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
-                className="text-center flex-grow bg-input/80"
+                className="text-center flex-grow bg-surface-2 border-surface-3 rounded-[12px] h-14 text-base focus:border-primary focus:shadow-[0_0_0_4px_hsl(var(--primary-glow))]"
                 onKeyUp={(e) => e.key === 'Enter' && joinSession()}
                 disabled={isCreating || isJoining}
               />
-              <Button onClick={joinSession} className="w-full sm:w-auto" variant="secondary" disabled={isCreating || isJoining}>
-                {isJoining && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Join Session
+              <Button onClick={joinSession} className="w-full sm:w-auto btn bg-surface-2 border border-surface-3 hover:bg-primary hover:border-primary hover:text-white" disabled={isCreating || isJoining}>
+                {isJoining ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+                Join
               </Button>
             </div>
           </CardContent>
