@@ -7,8 +7,8 @@ import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { cpp } from '@codemirror/lang-cpp';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { doc, onSnapshot, setDoc, collection, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Home, Copy, Wand2, Loader2, Play, Code, MessageSquare, Bug, Languages } from 'lucide-react';
@@ -27,6 +27,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import ChatPanel from './chat-panel';
+import ParticipantList from './participant-list';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -105,6 +106,22 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
 
   // Computed state to check if the output is an error
   const isErrorOutput = runOutput && /error/i.test(runOutput);
+
+  const handleLeavePage = useCallback(async () => {
+    if (auth.currentUser) {
+        const participantRef = doc(db, 'rooms', roomId, 'participants', auth.currentUser.uid);
+        await deleteDoc(participantRef);
+    }
+    onLeave();
+  }, [roomId, onLeave]);
+
+  useEffect(() => {
+    // Handling user leaving the page
+    window.addEventListener('beforeunload', handleLeavePage);
+    return () => {
+        window.removeEventListener('beforeunload', handleLeavePage);
+    };
+  }, [handleLeavePage]);
 
   useEffect(() => {
     switch (language) {
@@ -282,13 +299,22 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     }
   };
 
-  const handleSaveName = () => {
+  const handleSaveName = async () => {
     const name = tempNameRef.current?.value.trim();
     if (name) {
       setDisplayName(name);
+      localStorage.setItem(`displayName-${roomId}`, name);
+      
+      if (auth.currentUser) {
+        const participantRef = doc(db, 'rooms', roomId, 'participants', auth.currentUser.uid);
+        await setDoc(participantRef, {
+            displayName: name,
+            lastSeen: serverTimestamp()
+        });
+      }
+
       setIsNameDialogOpen(false);
       setIsChatOpen(true);
-      localStorage.setItem(`displayName-${roomId}`, name);
     } else {
       toast({
         title: "Name Required",
@@ -302,6 +328,16 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
     const savedName = localStorage.getItem(`displayName-${roomId}`);
     if (savedName) {
       setDisplayName(savedName);
+       if (auth.currentUser) {
+            const participantRef = doc(db, 'rooms', roomId, 'participants', auth.currentUser.uid);
+            setDoc(participantRef, {
+                displayName: savedName,
+                lastSeen: serverTimestamp()
+            }, { merge: true });
+        }
+    } else {
+      // If no name, prompt user to enter one
+      setIsNameDialogOpen(true);
     }
   }, [roomId]);
   
@@ -315,7 +351,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>What should we call you?</AlertDialogTitle>
             <AlertDialogDescription>
-              Enter a display name to use in the chat.
+              Enter a display name to use in the chat and to show others you're in the room.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-2 py-2">
@@ -323,8 +359,8 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
              <Input id="name" placeholder="Ada Lovelace" ref={tempNameRef} onKeyUp={(e) => e.key === 'Enter' && handleSaveName()} />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleSaveName}>Save</AlertDialogAction>
+            <AlertDialogCancel onClick={() => onLeave()}>Leave</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveName}>Join</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -338,7 +374,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
                     <MessageSquare className="mr-2 h-4 w-4" />
                     Chat
                 </Button>
-              <Button onClick={onLeave} variant="secondary" size="sm">
+              <Button onClick={handleLeavePage} variant="secondary" size="sm">
                 <Home className="mr-2 h-4 w-4" />
                 Leave
               </Button>
@@ -346,7 +382,8 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
           </div>
 
           <div className="flex w-full items-center justify-center rounded-md border bg-background px-3 py-1.5 md:w-auto md:justify-start">
-            <span className="text-sm font-medium text-muted-foreground">Room:</span>
+            <ParticipantList roomId={roomId} />
+            <span className="text-sm font-medium text-muted-foreground mr-2">Room:</span>
             <span className="ml-2 text-sm font-mono font-semibold">{roomId}</span>
             <Button variant="ghost" size="icon" className="ml-2 h-7 w-7" onClick={copyRoomId}>
               <Copy className="h-4 w-4" />
@@ -410,7 +447,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
                   {displayName ? <ChatPanel roomId={roomId} displayName={displayName} /> : <div className="p-4 text-center text-muted-foreground">Please set a name to chat.</div>}
                 </SheetContent>
               </Sheet>
-              <Button onClick={onLeave} variant="secondary">
+              <Button onClick={handleLeavePage} variant="secondary">
                 <Home className="mr-2 h-4 w-4" />
                 Leave
               </Button>
