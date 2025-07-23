@@ -11,10 +11,11 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Home, Copy, Wand2, Loader2, Play, Code, MessageSquare, Bug } from 'lucide-react';
+import { Home, Copy, Wand2, Loader2, Play, Code, MessageSquare, Bug, Languages } from 'lucide-react';
 import { executeCode } from '@/ai/flows/code-execution';
 import { getCodeSuggestion } from '@/ai/flows/code-suggestion';
 import { debugCode, type DebugCodeOutput } from '@/ai/flows/debug-code';
+import { translateCode } from '@/ai/flows/translate-code';
 import {
   Select,
   SelectContent,
@@ -36,6 +37,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -84,6 +91,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
   const [langExtension, setLangExtension] = useState<Extension>(() => javascript({ jsx: true }));
   const [isRunning, setIsRunning] = useState(false);
   const [isDebugging, setIsDebugging] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
   const [runOutput, setRunOutput] = useState<string | null>(null);
   const [debugAnalysis, setDebugAnalysis] = useState<DebugCodeOutput | null>(null);
   const [displayName, setDisplayName] = useState<string>('');
@@ -244,6 +252,27 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
       setIsDebugging(false);
     }
   };
+  
+  const handleTranslateCode = async (targetLanguage: Language) => {
+    if (language === targetLanguage) {
+        toast({ title: 'Translation Skipped', description: 'Source and target languages are the same.' });
+        return;
+    }
+    setIsTranslating(true);
+    setDebugAnalysis(null);
+    try {
+        const result = await translateCode({ sourceCode: code, sourceLanguage: language, targetLanguage });
+        setCode(result.translatedCode);
+        setLanguage(targetLanguage);
+        updateFirestore(result.translatedCode, targetLanguage);
+        toast({ title: 'Code Translated', description: `Successfully translated to ${targetLanguage}.` });
+    } catch (error) {
+        console.error("Error translating code:", error);
+        toast({ title: 'AI Error', description: 'Could not translate the code.', variant: 'destructive' });
+    } finally {
+        setIsTranslating(false);
+    }
+  };
 
   const handleChatClick = () => {
     if (!displayName) {
@@ -286,7 +315,7 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>What should we call you?</AlertDialogTitle>
             <AlertDialogDescription>
-              Enter a display name to use in the chat and voice channel.
+              Enter a display name to use in the chat.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-2 py-2">
@@ -335,6 +364,26 @@ export default function EditorPage({ roomId, onLeave }: EditorPageProps) {
                       <SelectItem value="cpp">C++</SelectItem>
                   </SelectContent>
               </Select>
+            
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline" disabled={isTranslating} className="flex-1 md:flex-none">
+                        {isTranslating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Languages className="mr-2 h-4 w-4" />}
+                        Translate
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => handleTranslateCode('javascript')} disabled={language === 'javascript'}>
+                        to JavaScript
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleTranslateCode('python')} disabled={language === 'python'}>
+                        to Python
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleTranslateCode('cpp')} disabled={language === 'cpp'}>
+                        to C++
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
 
             <Button onClick={handleAiSuggestion} variant="outline" disabled={isAiLoading || isRunning} className="flex-1 md:flex-none">
               {isAiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
